@@ -1,4 +1,4 @@
-name: tclabs bootstrap3
+name: tclabs bootstrap
 
 on:
   workflow_dispatch:
@@ -33,165 +33,175 @@ jobs:
       - name: Debug - Show repository structure
         run: |
           echo "=== REPOSITORY STRUCTURE ==="
-          find . -type f -name "*.sh" | grep -E "(bootstrap|build|properties)" | head -20
+          echo "Checking key files..."
+          ls -la scripts/*.sh 2>/dev/null | head -10
           echo ""
-          echo "=== SCRIPTS DIRECTORY ==="
-          ls -la scripts/
-          echo ""
-          echo "=== SCRIPTS/BUILD DIRECTORY ==="
-          ls -la scripts/build/ || echo "No scripts/build directory"
-          echo ""
-          echo "=== CHECK PROPERTIES.SH ==="
+          echo "=== CHECKING PROPERTIES.SH ==="
           if [ -f "scripts/properties.sh" ]; then
-            echo "properties.sh exists"
-            grep -n "TERMUX_APP__PACKAGE_NAME" scripts/properties.sh || echo "Not found in properties.sh"
+            echo "✓ properties.sh exists"
+            grep -n "TERMUX_APP__PACKAGE_NAME" scripts/properties.sh | head -2
           else
-            echo "ERROR: properties.sh not found!"
+            echo "✗ ERROR: properties.sh not found!"
           fi
       
-      - name: Setup build environment
+      - name: Fix critical permissions issue
         run: |
-          echo "=== STARTING ENVIRONMENT SETUP ==="
-          echo "Current user: $(whoami)"
-          echo "Current directory: $(pwd)"
-          echo "Matrix arch: ${{ matrix.arch }}"
-          echo "TERMUX_APP_PACKAGE: $TERMUX_APP_PACKAGE"
+          echo "=== FIXING CRITICAL PERMISSIONS ISSUE ==="
+          echo "Problem: /data/TERMUX_ARCH is owned by root, but script needs to write to it"
+          echo "Solution: Create file with correct permissions from the start"
           
-          echo ""
-          echo "=== CHECKING /data DIRECTORY ==="
-          ls -la / | grep data || echo "/data does not exist"
-          
-          echo ""
-          echo "=== CREATING /data STRUCTURE ==="
+          # Create /data directory if not exists
           sudo mkdir -p /data
-          echo "Created /data directory"
-          ls -la / | grep data
           
-          echo ""
-          echo "=== CREATING /data/TERMUX_ARCH ==="
+          # Create TERMUX_ARCH file with proper ownership and permissions
           echo "${{ matrix.arch }}" | sudo tee /data/TERMUX_ARCH
-          echo "File created at /data/TERMUX_ARCH"
-          echo "Content: $(sudo cat /data/TERMUX_ARCH)"
+          
+          # CRITICAL FIX: Change owner to runner user
+          sudo chown runner:runner /data/TERMUX_ARCH
+          
+          # CRITICAL FIX: Give write permission to user
           sudo chmod 644 /data/TERMUX_ARCH
-          echo "Permissions: $(sudo ls -la /data/TERMUX_ARCH)"
+          
+          echo "=== VERIFYING FIX ==="
+          echo "File permissions:"
+          ls -la /data/TERMUX_ARCH
+          echo ""
+          echo "Testing write access (as runner user):"
+          if echo "test_write" > /data/TERMUX_ARCH 2>/dev/null; then
+            echo "✓ SUCCESS: Can write to /data/TERMUX_ARCH"
+            # Restore original content
+            echo "${{ matrix.arch }}" > /data/TERMUX_ARCH
+          else
+            echo "✗ FAILED: Cannot write to /data/TERMUX_ARCH"
+            echo "Trying alternative fix..."
+            sudo chmod 666 /data/TERMUX_ARCH
+            ls -la /data/TERMUX_ARCH
+          fi
           
           echo ""
+          echo "Testing read access:"
+          if cat /data/TERMUX_ARCH >/dev/null 2>&1; then
+            echo "✓ SUCCESS: Can read /data/TERMUX_ARCH"
+            echo "Content: $(cat /data/TERMUX_ARCH)"
+          else
+            echo "✗ FAILED: Cannot read /data/TERMUX_ARCH"
+          fi
+      
+      - name: Create app directories
+        run: |
           echo "=== CREATING APP DIRECTORIES ==="
+          
+          # Create basic Android app directory structure
           sudo mkdir -p /data/data/com.tclabs.codestudio
           sudo mkdir -p /data/data/com.tclabs.codestudio/files
           sudo mkdir -p /data/data/com.tclabs.codestudio/cache
           sudo mkdir -p /data/data/com.tclabs.codestudio/termux
           
-          echo ""
-          echo "=== SETTING PERMISSIONS ==="
-          sudo chown -R $USER:$USER /data/data 2>/dev/null || true
+          # Set proper ownership
+          sudo chown -R runner:runner /data/data 2>/dev/null || true
           sudo chmod -R 755 /data/data 2>/dev/null || true
           
-          echo ""
-          echo "=== FINAL /data STRUCTURE ==="
+          echo "Directory structure created:"
           find /data -type d 2>/dev/null | sort
-          
-          echo ""
-          echo "=== CHECKING ENVIRONMENT VARIABLES ==="
-          env | grep -i termux || echo "No TERMUX environment variables"
       
-      - name: Debug - Check termux_step_handle_buildarch.sh
+      - name: Analyze the problematic script
         run: |
           echo "=== ANALYZING termux_step_handle_buildarch.sh ==="
+          
           if [ -f "scripts/build/termux_step_handle_buildarch.sh" ]; then
-            echo "File exists"
+            echo "File exists. Line count: $(wc -l < scripts/build/termux_step_handle_buildarch.sh)"
             echo ""
-            echo "=== LINE 33 (THE PROBLEMATIC LINE) ==="
-            sed -n '30,36p' scripts/build/termux_step_handle_buildarch.sh
+            echo "=== LINES AROUND LINE 33 ==="
+            sed -n '25,35p' scripts/build/termux_step_handle_buildarch.sh
             echo ""
-            echo "=== FULL FILE ANALYSIS ==="
-            echo "Total lines: $(wc -l < scripts/build/termux_step_handle_buildarch.sh)"
-            grep -n "/data/TERMUX_ARCH" scripts/build/termux_step_handle_buildarch.sh || echo "No /data/TERMUX_ARCH references"
+            echo "=== FULL FILE CONTENT ==="
+            cat scripts/build/termux_step_handle_buildarch.sh
+            echo ""
+            echo "=== ANALYSIS ==="
+            echo "The script defines TERMUX_ARCH_FILE=/data/TERMUX_ARCH"
+            echo "At line 33 it tries to write: echo \"\$TERMUX_ARCH\" > \$TERMUX_ARCH_FILE"
+            echo "This requires write permission to /data/TERMUX_ARCH"
           else
-            echo "ERROR: scripts/build/termux_step_handle_buildarch.sh not found!"
-            echo "Looking for it..."
-            find . -name "termux_step_handle_buildarch.sh" -type f
+            echo "✗ ERROR: scripts/build/termux_step_handle_buildarch.sh not found!"
           fi
       
-      - name: Debug - Check build-bootstraps.sh dependencies
+      - name: Apply patch if needed (optional)
         run: |
-          echo "=== ANALYZING build-bootstraps.sh ==="
-          if [ -f "scripts/build-bootstraps.sh" ]; then
-            echo "File exists"
-            echo ""
-            echo "=== SOURCED FILES ==="
-            grep -n "\. \|source " scripts/build-bootstraps.sh | head -10
+          echo "=== APPLYING OPTIONAL PATCH ==="
+          echo "This step patches the script to avoid writing to /data/TERMUX_ARCH"
+          
+          SCRIPT_FILE="scripts/build/termux_step_handle_buildarch.sh"
+          if [ -f "$SCRIPT_FILE" ]; then
+            # Backup original
+            cp "$SCRIPT_FILE" "${SCRIPT_FILE}.backup"
             
-            echo ""
-            echo "=== FIRST 20 LINES ==="
-            head -20 scripts/build-bootstraps.sh
-            
-            echo ""
-            echo "=== CHECKING IF PROPERTIES.SH IS LOADED CORRECTLY ==="
-            if grep -q "properties.sh" scripts/build-bootstraps.sh; then
-              echo "properties.sh is referenced in build-bootstraps.sh"
+            # Check if line 33 exists and contains the problematic write
+            if sed -n '33p' "$SCRIPT_FILE" | grep -q 'echo.*TERMUX_ARCH.*>' ; then
+              echo "Found problematic write at line 33. Patching..."
+              
+              # Option 1: Comment out the line
+              sed -i '33s/^/# /' "$SCRIPT_FILE"
+              
+              # Option 2: Replace with a no-op (safer)
+              # sed -i '33s/echo "$TERMUX_ARCH" > $TERMUX_ARCH_FILE/# echo "$TERMUX_ARCH" > $TERMUX_ARCH_FILE  # Disabled for GitHub Actions/' "$SCRIPT_FILE"
+              
+              echo "Patch applied. New line 33:"
+              sed -n '33p' "$SCRIPT_FILE"
             else
-              echo "WARNING: properties.sh not referenced in build-bootstraps.sh"
+              echo "Line 33 doesn't contain the problematic write. Skipping patch."
+              echo "Line 33 content:"
+              sed -n '33p' "$SCRIPT_FILE"
             fi
           else
-            echo "ERROR: scripts/build-bootstraps.sh not found!"
-            ls scripts/*.sh
+            echo "Script file not found, skipping patch."
           fi
       
-      - name: Test file access
+      - name: Pre-build test
         run: |
-          echo "=== TESTING FILE ACCESS ==="
-          echo "Testing /data/TERMUX_ARCH access..."
-          if [ -f "/data/TERMUX_ARCH" ]; then
-            echo "File exists"
-            echo "Content: $(cat /data/TERMUX_ARCH)"
-            echo "Permissions: $(ls -la /data/TERMUX_ARCH)"
+          echo "=== PRE-BUILD TEST ==="
+          echo "Testing if build-bootstraps.sh can be sourced without errors..."
+          
+          # Test sourcing properties.sh
+          if . scripts/properties.sh 2>&1; then
+            echo "✓ properties.sh sourced successfully"
           else
-            echo "ERROR: /data/TERMUX_ARCH does not exist!"
+            echo "✗ Failed to source properties.sh"
+            . scripts/properties.sh 2>&1 || true
+          fi
+          
+          # Test sourcing termux_step_handle_buildarch.sh
+          if . scripts/build/termux_step_handle_buildarch.sh 2>&1; then
+            echo "✓ termux_step_handle_buildarch.sh sourced successfully"
+          else
+            echo "✗ Failed to source termux_step_handle_buildarch.sh"
+            . scripts/build/termux_step_handle_buildarch.sh 2>&1 || true
           fi
           
           echo ""
-          echo "Testing if user can read /data/TERMUX_ARCH..."
-          cat /data/TERMUX_ARCH && echo "SUCCESS: Can read file" || echo "ERROR: Cannot read file"
-          
-          echo ""
-          echo "=== TESTING PROPERTIES.SH ==="
-          if [ -f "scripts/properties.sh" ]; then
-            echo "Testing if properties.sh can be sourced..."
-            if . scripts/properties.sh 2>&1; then
-              echo "SUCCESS: properties.sh sourced successfully"
-            else
-              echo "ERROR: Failed to source properties.sh"
-              . scripts/properties.sh 2>&1 || true
-            fi
-          fi
+          echo "=== FINAL PERMISSION CHECK ==="
+          echo "/data/TERMUX_ARCH permissions:"
+          ls -la /data/TERMUX_ARCH
+          echo "Can write? $(echo "test" > /data/TERMUX_ARCH 2>/dev/null && echo "YES" || echo "NO")"
+          echo "Can read? $(cat /data/TERMUX_ARCH >/dev/null 2>&1 && echo "YES" || echo "NO")"
       
       - name: Create bootstrap archive
         timeout-minutes: 60
         run: |
           echo "=== STARTING BOOTSTRAP BUILD ==="
-          echo "Current directory: $(pwd)"
-          echo "Running: ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}"
+          echo "Architecture: ${{ matrix.arch }}"
+          echo "Package: $TERMUX_APP_PACKAGE"
+          echo "Working directory: $(pwd)"
           echo ""
-          echo "=== PRE-BUILD ENVIRONMENT ==="
-          echo "PATH: $PATH"
-          echo "USER: $(whoami)"
-          echo "HOME: $HOME"
-          echo "PWD: $(pwd)"
-          echo ""
-          echo "=== CHECKING REQUIRED TOOLS ==="
-          for cmd in ar awk curl grep gzip find sed tar xargs xz zip; do
-            if command -v $cmd >/dev/null 2>&1; then
-              echo "✓ $cmd: $(which $cmd)"
-            else
-              echo "✗ $cmd: NOT FOUND"
-            fi
-          done
           
-          echo ""
           echo "=== EXECUTING build-bootstraps.sh ==="
-          set -x  # Enable debug output for the actual build
-          ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}
+          echo "Command: ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}"
+          
+          # Enable verbose output
+          set -x
+          
+          # Execute the build script
+          ./scripts/build-bootstraps.sh --architectures "${{ matrix.arch }}"
+          
           BUILD_EXIT_CODE=$?
           set +x
           
@@ -203,13 +213,16 @@ jobs:
             echo "✓ BUILD SUCCESSFUL"
             echo ""
             echo "=== GENERATED FILES ==="
-            ls -la *.zip 2>/dev/null || echo "No zip files generated"
+            ls -la *.zip 2>/dev/null || echo "No zip files found (but build succeeded?)"
           else
-            echo "✗ BUILD FAILED"
-            echo "Last 50 lines of potential output (if any):"
-            find . -name "*.log" -type f -exec tail -50 {} \; 2>/dev/null || echo "No log files found"
+            echo "✗ BUILD FAILED with exit code $BUILD_EXIT_CODE"
+            echo ""
+            echo "=== ERROR ANALYSIS ==="
+            echo "Last error was likely from termux_step_handle_buildarch.sh"
+            echo "Check if /data/TERMUX_ARCH permissions are correct"
           fi
           
+          # Exit with the build's exit code
           exit $BUILD_EXIT_CODE
       
       - name: Debug - Post-build analysis
@@ -217,27 +230,32 @@ jobs:
         run: |
           echo "=== POST-BUILD DEBUG ANALYSIS ==="
           echo ""
-          echo "=== CHECKING FOR ERROR LOGS ==="
-          find . -type f -name "*.log" -o -name "*.tmp" -o -name "*.err" | while read file; do
-            echo "=== $file ==="
-            tail -100 "$file" 2>/dev/null | head -50
-            echo ""
-          done
-          
-          echo ""
-          echo "=== CURRENT DIRECTORY CONTENTS ==="
+          echo "=== CURRENT STATE ==="
+          echo "Working directory: $(pwd)"
+          echo "Files in directory:"
           ls -la
           
           echo ""
           echo "=== /data DIRECTORY STATUS ==="
-          find /data -type f 2>/dev/null | head -20
+          find /data -type f 2>/dev/null || echo "No files in /data"
           
           echo ""
-          echo "=== CHECKING FOR PARTIAL BOOTSTRAP FILES ==="
-          find . -type f -name "bootstrap-*" -o -name "*.zip" | while read file; do
-            echo "Found: $file"
-            ls -la "$file"
-          done
+          echo "=== CHECKING /data/TERMUX_ARCH ==="
+          if [ -f "/data/TERMUX_ARCH" ]; then
+            echo "File exists"
+            echo "Permissions: $(ls -la /data/TERMUX_ARCH)"
+            echo "Owner: $(stat -c '%U:%G' /data/TERMUX_ARCH)"
+            echo "Content: $(cat /data/TERMUX_ARCH)"
+          else
+            echo "File does not exist!"
+          fi
+          
+          echo ""
+          echo "=== SCRIPT PATCH STATUS ==="
+          if [ -f "scripts/build/termux_step_handle_buildarch.sh" ]; then
+            echo "Line 33 content:"
+            sed -n '33p' scripts/build/termux_step_handle_buildarch.sh
+          fi
       
       - name: Store artifacts
         if: success()
@@ -283,22 +301,16 @@ jobs:
       - name: Verify downloaded artifacts
         run: |
           echo "=== VERIFYING ARTIFACTS ==="
-          echo "Current directory: $(pwd)"
-          ls -la
-          echo ""
-          echo "=== ZIP FILES ==="
-          find . -name "*.zip" -type f | while read zip; do
-            echo "File: $zip"
-            echo "Size: $(du -h "$zip" | cut -f1)"
-            echo "Checksum: $(sha256sum "$zip" | cut -d' ' -f1)"
-            echo ""
-          done
+          ZIP_COUNT=$(find . -name "*.zip" -type f | wc -l)
+          echo "Found $ZIP_COUNT zip files"
           
-          # Check if we have any zip files
-          if [ -z "$(find . -name '*.zip' -type f)" ]; then
+          if [ "$ZIP_COUNT" -eq 0 ]; then
             echo "ERROR: No zip files found!"
             exit 1
           fi
+          
+          echo "Listing zip files:"
+          find . -name "*.zip" -type f -exec ls -la {} \;
       
       - name: Create new tag
         id: get_tag
@@ -309,7 +321,6 @@ jobs:
           
           # Check for existing tags
           existing_tag_revision=$(git tag | grep "$new_tag" | sort -r | head -n 1 | cut -d- -f3 | cut -dr -f2)
-          echo "Existing tag revision: $existing_tag_revision"
           
           if [ -n "$existing_tag_revision" ]; then
             tag_rev=$((existing_tag_revision + 1))
@@ -324,15 +335,13 @@ jobs:
       - name: Setup GitHub CLI
         run: |
           echo "=== SETTING UP GITHUB CLI ==="
-          gh --version || echo "GitHub CLI not installed"
-          # Install if not present
+          # Install GitHub CLI if not present
           if ! command -v gh &> /dev/null; then
             echo "Installing GitHub CLI..."
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-            sudo apt update
-            sudo apt install -y gh
+            sudo apt-get update
+            sudo apt-get install -y gh
           fi
+          gh --version
       
       - name: Publish bootstrap zips to GitHub release
         env:
@@ -342,31 +351,25 @@ jobs:
           echo "=== PUBLISHING RELEASE ==="
           echo "Repository: $GITHUB_REPOSITORY"
           echo "Tag: ${{ steps.get_tag.outputs.tag_name }}"
-          echo ""
           
           # Create release
           echo "Creating release..."
           gh release create "${{ steps.get_tag.outputs.tag_name }}" \
             --title "Bootstrap archives for CodeStudio application (apt.android-7)" \
-            --notes "Automatically generated bootstrap archives for ${{ github.sha }}" \
+            --notes "Automatically generated bootstrap archives" \
             --draft=false \
             --prerelease=false
           
           # Upload all zip files
-          echo ""
           echo "Uploading files..."
           for file in *.zip; do
             if [ -f "$file" ]; then
               echo "Uploading: $file"
               gh release upload "${{ steps.get_tag.outputs.tag_name }}" "$file" --clobber
-            else
-              echo "WARNING: $file not found"
             fi
           done
           
-          echo ""
-          echo "=== RELEASE CREATED SUCCESSFULLY ==="
-          echo "Release URL: https://github.com/$GITHUB_REPOSITORY/releases/tag/${{ steps.get_tag.outputs.tag_name }}"
+          echo "Release created successfully"
       
       - name: Cleanup workspace
         run: |
