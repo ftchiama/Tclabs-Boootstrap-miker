@@ -1,8 +1,6 @@
-name: Generate bootstrap archives (android-7)
+name: tclabs bootstrap
 
 on:
-  schedule:
-    - cron: "0 0 * * 0"
   workflow_dispatch:
 
 permissions: {} # none
@@ -16,6 +14,8 @@ jobs:
     permissions:
       contents: read # actions/upload-artifact doesn't need contents: write
     runs-on: ubuntu-slim
+    env:
+      TERMUX_APP_PACKAGE: "com.tclabs.codestudio"
     strategy:
       matrix:
         arch:
@@ -23,12 +23,11 @@ jobs:
           - arm
           - i686
           - x86_64
-    if: github.repository == 'termux/termux-packages'
     steps:
       - name: Git clone
         uses: actions/checkout@v6
       - name: Create bootstrap archive
-        run: ./scripts/generate-bootstraps.sh --architectures ${{ matrix.arch }}
+        run: ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}
       - name: Store artifacts
         uses: actions/upload-artifact@v6
         with:
