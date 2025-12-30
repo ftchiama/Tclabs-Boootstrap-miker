@@ -1,204 +1,83 @@
-name: tclabs bootstrap4
+name: Build Termux Bootstrap for CodeStudio
 
 on:
   workflow_dispatch:
-
-permissions: {} # none
-
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
+  push:
+    branches: [main]
 
 jobs:
-  build:
-    permissions:
-      contents: read
-    runs-on: ubuntu-slim
-    env:
-      TERMUX_APP_PACKAGE: "com.tclabs.codestudio"
-      DEBUG_MODE: "true"
-    strategy:
-      matrix:
-        arch:
-          - aarch64
-          - arm
-          - i686
-          - x86_64
+  build-bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 horas máximo
+    
     steps:
-      - name: Git clone
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+    - name: Checkout
+      uses: actions/checkout@v4
       
-      - name: Complete environment fix
-        run: |
-          echo "=== COMPLETE ENVIRONMENT FIX ==="
+    - name: Setup Docker
+      run: |
+        # O GitHub Actions já tem Docker
+        sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+        
+    - name: Clone termux-packages (BRANCH CORRETA)
+      run: |
+        rm -rf termux-packages 2>/dev/null || true
+        git clone --branch infra-improvs \
+          --depth 1 \
+          https://github.com/agnostic-apollo/termux-packages
           
-          # 1. Criar /data com permissões corretas
-          sudo mkdir -p /data
-          echo "${{ matrix.arch }}" | sudo tee /data/TERMUX_ARCH
-          
-          # 2. DAR PERMISSÃO COMPLETA AO USUÁRIO RUNNER EM /data
-          sudo chown -R runner:runner /data
-          sudo chmod -R 755 /data
-          
-          # 3. Criar diretórios do app (agora como usuário runner)
-          mkdir -p /data/data/com.tclabs.codestudio
-          mkdir -p /data/data/com.tclabs.codestudio/files
-          mkdir -p /data/data/com.tclabs.codestudio/cache
-          mkdir -p /data/data/com.tclabs.codestudio/termux
-          
-          # 4. Criar diretório de backup que o script precisa
-          mkdir -p "$HOME/.termux-build/_databackups"
-          
-          echo "=== VERIFICATION ==="
-          echo "User: $(whoami)"
-          echo "/data permissions:"
-          ls -la / | grep data
-          echo ""
-          echo "/data/data permissions:"
-          ls -la /data/
-          echo ""
-          echo "Can write to /data/data? Test:"
-          touch /data/data/test_file && echo "✓ YES" && rm /data/data/test_file || echo "✗ NO"
-      
-      - name: Patch script to avoid backup issues
-        run: |
-          echo "=== PATCHING SCRIPT ==="
-          
-          # O script tenta fazer backup quando detecta mudança de arquitetura
-          # Mas no GitHub Actions não precisamos desse backup
-          
-          SCRIPT_FILE="scripts/build/termux_step_handle_buildarch.sh"
-          if [ -f "$SCRIPT_FILE" ]; then
-            echo "Applying patches..."
-            
-            # Backup original
-            cp "$SCRIPT_FILE" "${SCRIPT_FILE}.backup"
-            
-            # 1. Comentar a linha que escreve em TERMUX_ARCH (já fizemos)
-            sed -i '33s/^/# /' "$SCRIPT_FILE"
-            
-            # 2. Desabilitar a lógica de backup (opcional - linhas 12-31)
-            # Isso previne o erro "mv: não foi possível mover '/data/data'"
-            sed -i 's/mv \/data\/data "$TERMUX_DATA_PREVIOUS_BACKUPDIR"/# mv \/data\/data "$TERMUX_DATA_PREVIOUS_BACKUPDIR"  # Disabled for CI/' "$SCRIPT_FILE"
-            sed -i 's/mv "$TERMUX_DATA_CURRENT_BACKUPDIR" \/data\/data/# mv "$TERMUX_DATA_CURRENT_BACKUPDIR" \/data\/data  # Disabled for CI/' "$SCRIPT_FILE"
-            
-            echo "Patches applied"
-            echo "Line 33 (writing TERMUX_ARCH):"
-            sed -n '33p' "$SCRIPT_FILE"
-            echo ""
-            echo "Backup logic lines:"
-            sed -n '12,31p' "$SCRIPT_FILE" | grep -n "mv"
-          else
-            echo "Script not found, skipping patch"
-          fi
-      
-      - name: Create bootstrap archive
-        timeout-minutes: 60
-        run: |
-          echo "=== STARTING BOOTSTRAP BUILD ==="
-          echo "Architecture: ${{ matrix.arch }}"
-          echo "Package: $TERMUX_APP_PACKAGE"
-          echo ""
-          
-          # Create required directories that the script expects
-          mkdir -p "$HOME/.termux-build"
-          mkdir -p "$HOME/.termux-build/_databackups"
-          
-          echo "=== EXECUTING build-bootstraps.sh ==="
-          set -x
-          ./scripts/build-bootstraps.sh --architectures "${{ matrix.arch }}"
-          BUILD_EXIT_CODE=$?
-          set +x
-          
-          echo ""
-          echo "=== BUILD COMPLETED ==="
-          echo "Exit code: $BUILD_EXIT_CODE"
-          
-          if [ $BUILD_EXIT_CODE -eq 0 ]; then
-            echo "✓ BUILD SUCCESSFUL"
-            echo ""
-            echo "=== GENERATED FILES ==="
-            find . -name "*.zip" -type f | while read file; do
-              echo "Found: $file"
-              ls -la "$file"
-            done
-          else
-            echo "✗ BUILD FAILED"
-            echo "Checking for error logs..."
-            find . -type f -name "*.log" -exec tail -20 {} \; 2>/dev/null || echo "No log files found"
-          fi
-          
-          exit $BUILD_EXIT_CODE
-      
-      - name: Store artifacts
-        if: success()
-        uses: actions/upload-artifact@v6
-        with:
-          name: bootstrap-archives-${{ matrix.arch }}-${{ github.sha }}
-          path: "*.zip"
-          retention-days: 7
-  
-  publish:
-    permissions:
-      contents: write
-    needs: build
-    runs-on: ubuntu-slim
-    if: always()
-    steps:
-      - name: Check build status
-        run: |
-          if [ "${{ needs.build.result }}" != "success" ]; then
-            echo "Skipping publish because build failed"
-            exit 0
-          fi
-      
-      - name: Git clone
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      
-      - name: Fetch bootstrap archives
-        uses: actions/download-artifact@v7
-        with:
-          merge-multiple: true
-          path: ./
-      
-      - name: Create new tag
-        id: get_tag
-        run: |
-          new_tag="bootstrap-$(date "+%Y.%m.%d")"
-          existing_tag_revision=$(git tag | grep "$new_tag" | sort -r | head -n 1 | cut -d- -f3 | cut -dr -f2)
-          if [ -n "$existing_tag_revision" ]; then
-            tag_rev=$((existing_tag_revision + 1))
-          else
-            tag_rev=1
-          fi
-          new_tag="${new_tag}-r${tag_rev}+apt.android-7"
-          echo "tag_name=$new_tag" >> $GITHUB_OUTPUT
-      
-      - name: Publish bootstrap zips to GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          # Install GitHub CLI if needed
-          if ! command -v gh &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y gh
-          fi
-          
-          # Create release
-          gh release create "${{ steps.get_tag.outputs.tag_name }}" \
-            --title "Bootstrap archives for CodeStudio application (apt.android-7)" \
-            --notes "Automatically generated" \
-            --draft=false \
-            --prerelease=false
-          
-          # Upload files
-          for file in *.zip; do
-            if [ -f "$file" ]; then
-              gh release upload "${{ steps.get_tag.outputs.tag_name }}" "$file" --clobber
-            fi
-          done
+    - name: Configure for CodeStudio
+      run: |
+        cd termux-packages
+        
+        # Backup original
+        cp scripts/properties.sh scripts/properties.sh.backup
+        
+        # Substituir o nome do pacote
+        sed -i 's/TERMUX_APP__PACKAGE_NAME="com\.termux"/TERMUX_APP__PACKAGE_NAME="com.tclabs.codestudio"/g' scripts/properties.sh
+        sed -i 's/TERMUX_APP_PACKAGE="com\.termux"/TERMUX_APP_PACKAGE="com.tclabs.codestudio"/g' scripts/properties.sh
+        
+        # Verificar
+        echo "=== CONFIGURAÇÃO VERIFICADA ==="
+        grep -n "PACKAGE" scripts/properties.sh | grep -i "tclabs"
+        
+    - name: Clean previous builds
+      run: |
+        cd termux-packages
+        ./scripts/run-docker.sh ./clean.sh
+        
+    - name: Build bootstrap for aarch64 (TESTE INICIAL)
+      run: |
+        cd termux-packages
+        
+        echo "=== INICIANDO COMPILAÇÃO ==="
+        echo "Arquitetura: aarch64"
+        echo "Pacote: com.tclabs.codestudio"
+        
+        # COMANDO CORRETO COM TODOS OS PARÂMETROS NECESSÁRIOS
+        timeout 350m ./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
+          --architectures aarch64 \
+          --no-build-unneeded-subpackages \
+          -f \
+          2>&1 | tee build.log
+        
+    - name: Check results
+      run: |
+        cd termux-packages
+        
+        if ls -la output/bootstrap-*.zip 2>/dev/null; then
+          echo "✅ BOOTSTRAP GERADO COM SUCESSO!"
+          echo "Arquivos encontrados:"
+          ls -lh output/bootstrap-*.zip
+        else
+          echo "❌ FALHA NA GERAÇÃO"
+          echo "Últimas 50 linhas do log:"
+          tail -50 build.log || echo "Log não encontrado"
+          exit 1
+        fi
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: bootstraps
+        path: termux-packages/output/bootstrap-*.zip
