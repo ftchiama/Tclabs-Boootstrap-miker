@@ -1,3 +1,35 @@
+jobs:
+  build:
+    permissions:
+      contents: read
+    runs-on: ubuntu-slim
+    strategy:
+      matrix:
+        arch:
+          - aarch64
+          - arm
+          - i686
+          - x86_64
+    steps:
+      - name: Git clone
+        uses: actions/checkout@v6
+      
+      - name: Configurar DNS para resolver packages-cf.termux.dev
+        run: |
+          echo "Configurando DNS..."
+          echo "8.8.8.8" | sudo tee -a /etc/resolv.conf
+          echo "8.8.4.4" | sudo tee -a /etc/resolv.conf
+          cat /etc/resolv.conf
+          
+      - name: Testar conexão com o mirror
+        run: |
+          curl -I https://packages-cf.termux.dev/ || true
+          curl -I https://packages.termux.dev/ || true
+          
+      - name: Create bootstrap archive
+        run: ./scripts/generate-bootstraps.sh --architectures ${{ matrix.arch }}
+      
+      # ... resto do código
 name: Generate bootstrap archives mk2
 
 on:
