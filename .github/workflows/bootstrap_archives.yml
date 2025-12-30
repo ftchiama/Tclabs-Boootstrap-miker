@@ -1,4 +1,4 @@
-name: Generate now
+name: Generate now sem skiped
 
 on:
   workflow_dispatch:
@@ -21,7 +21,6 @@ jobs:
           - arm
           - i686
           - x86_64
-    if: github.repository == 'termux/termux-packages'
     steps:
       - name: Git clone
         uses: actions/checkout@v6
