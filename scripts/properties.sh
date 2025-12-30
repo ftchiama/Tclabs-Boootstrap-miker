@@ -371,7 +371,7 @@ fi
 #
 # Default value: `Termux`
 ##
-TERMUX__NAME="codeStudio"
+TERMUX__NAME="CodeStudio"
 
 ##
 # The lower case value for `TERMUX__NAME`.
@@ -402,7 +402,7 @@ TERMUX__UNAME="${TERMUX__NAME^^}"
 #
 # Default value: `termux`
 ##
-TERMUX__INTERNAL_NAME="codestudio"
+TERMUX__INTERNAL_NAME="termux"
 
 ##
 # The regex to validate `TERMUX__INTERNAL_NAME`.
@@ -436,7 +436,7 @@ TERMUX__INTERNAL_NAME___MAX_LEN=7
 #
 # Default value: `termux`
 ##
-TERMUX__REPOS_HOST_ORG_NAME="tclabs"
+TERMUX__REPOS_HOST_ORG_NAME="termux"
 
 ##
 # Termux repositories host organization url.
@@ -464,7 +464,7 @@ TERMUX__REPOS_HOST_ORG_URL="https://github.com/$TERMUX__REPOS_HOST_ORG_NAME"
 #
 # Default value: `com.termux`
 ##
-TERMUX_APP__PACKAGE_NAME="com.tclabs.codeStudio"
+TERMUX_APP__PACKAGE_NAME="com.tclabs.codestudio"
 TERMUX_APP_PACKAGE="$TERMUX_APP__PACKAGE_NAME" # Deprecated alternative variable for `TERMUX_APP__PACKAGE_NAME`
 
 __termux_build_props__add_variables_validator_actions "TERMUX_APP__PACKAGE_NAME" "app_package_name"
@@ -1775,7 +1775,7 @@ TERMUX_ENV__S_TERMUX_AM_SOCKET="${TERMUX_ENV__S_ROOT}${TERMUX_ENV__SS_TERMUX_AM_
 #
 # Default value: `termux-packages`
 ##
-TERMUX_PKGS__REPO_NAME="codeStudio-packages"
+TERMUX_PKGS__REPO_NAME="termux-packages"
 
 ##
 # Termux packages repo url.
@@ -1816,7 +1816,7 @@ TERMUX_APP__LNAME="${TERMUX_APP__NAME,,}"
 # Validation regex: `TERMUX__APPS_APP_IDENTIFIER_REGEX`
 # Max length: `TERMUX__APPS_APP_IDENTIFIER___MAX_LEN`
 ##
-TERMUX_APP__APP_IDENTIFIER="codestudio"
+TERMUX_APP__APP_IDENTIFIER="codeStudio"
 
 
 
@@ -1825,7 +1825,7 @@ TERMUX_APP__APP_IDENTIFIER="codestudio"
 #
 # Default value: `termux-app`
 ##
-TERMUX_APP__REPO_NAME="codeStudio-app"
+TERMUX_APP__REPO_NAME="codestudio-app"
 
 ##
 # Termux app repo url.
@@ -1848,7 +1848,7 @@ TERMUX_APP__REPO_URL="$TERMUX__REPOS_HOST_ORG_URL/$TERMUX_APP__REPO_NAME"
 #
 # Default value: `com.termux`
 ##
-TERMUX_APP__NAMESPACE="com.tclabs.codeStudio"
+TERMUX_APP__NAMESPACE="com.tclabs.codestudio"
 
 __termux_build_props__add_variables_validator_actions "TERMUX_APP__NAMESPACE" "app_package_name"
 
@@ -1966,7 +1966,7 @@ __termux_build_props__add_variables_validator_actions "TERMUX_APP__AM_SOCKET__SE
 #
 # Default value: `com.termux.api`
 ##
-TERMUX_API_APP__PACKAGE_NAME="com.tclabs.codeStudio.api"
+TERMUX_API_APP__PACKAGE_NAME="com.codestudio.api"
 
 __termux_build_props__add_variables_validator_actions "TERMUX_API_APP__PACKAGE_NAME" "app_package_name"
 
@@ -1995,7 +1995,7 @@ TERMUX_API_APP__APP_IDENTIFIER="codestudioapi"
 #
 # Default value: `termux-api`
 ##
-TERMUX_API_APP__REPO_NAME="codeStudio-api"
+TERMUX_API_APP__REPO_NAME="codestudio-api"
 
 ##
 # Termux:API app repo url.
@@ -2018,7 +2018,7 @@ TERMUX_API_APP__REPO_URL="$TERMUX__REPOS_HOST_ORG_URL/$TERMUX_API_APP__REPO_NAME
 #
 # Default value: `com.termux.api`
 ##
-TERMUX_API_APP__NAMESPACE="com.tclabs.codeStudio.api"
+TERMUX_API_APP__NAMESPACE="com.codestudio.api"
 
 __termux_build_props__add_variables_validator_actions "TERMUX_API_APP__NAMESPACE" "app_package_name"
 
@@ -2062,7 +2062,7 @@ TERMUX_API_APP__ANDROID_API__ANDROID_API_RECEIVER__CLASS_NAME="$TERMUX_API_APP__
 #
 # Default value: `termux-api-package`
 ##
-TERMUX_API_PKG__REPO_NAME="codeStudio-api-package"
+TERMUX_API_PKG__REPO_NAME="termux-api-package"
 
 ##
 # The `termux-api` package repo url.
@@ -2091,7 +2091,7 @@ TERMUX_API_PKG__REPO_URL="$TERMUX__REPOS_HOST_ORG_URL/$TERMUX_API_PKG__REPO_NAME
 #
 # Default value: `termux-core-package`
 ##
-TERMUX_CORE_PKG__REPO_NAME="codeStudio-core-package"
+TERMUX_CORE_PKG__REPO_NAME="termux-core-package"
 
 ##
 # The `termux-core` package repo url.
@@ -2115,7 +2115,7 @@ TERMUX_CORE_PKG__REPO_URL="$TERMUX__REPOS_HOST_ORG_URL/$TERMUX_CORE_PKG__REPO_NA
 #
 # Default value: `TermuxAm`
 ##
-TERMUX_AM_PKG__REPO_NAME="codeStudio-am"
+TERMUX_AM_PKG__REPO_NAME="codestudioAm"
 
 ##
 # The `termux-am` package repo url.
@@ -2139,7 +2139,7 @@ TERMUX_AM_PKG__REPO_URL="$TERMUX__REPOS_HOST_ORG_URL/$TERMUX_AM_PKG__REPO_NAME"
 #
 # Constant value: `com.termux.termuxam`
 ##
-TERMUX_AM_APP__NAMESPACE="com.tclabs.codeStudio.termuxam"
+TERMUX_AM_APP__NAMESPACE="com.tclabs.codestudio.termuxam"
 
 __termux_build_props__add_variables_validator_actions "TERMUX_AM_APP__NAMESPACE" "app_package_name"
 
@@ -2180,13 +2180,13 @@ TERMUX_AM_APP__AM_CLASS__CLASS_NAME="$TERMUX_AM_APP__NAMESPACE.Am"
 # and are compiled locally.
 # FIXME: Checking for all variables will be added later in repo
 # changes pull, currently only `TERMUX_REPO_APP__PACKAGE_NAME` is checked.
-TERMUX_REPO_APP__PACKAGE_NAME="com.tclabs.codeStudio"
-TERMUX_REPO_APP__DATA_DIR="/data/data/com.tclabs.codeStudio"
-TERMUX_REPO__CORE_DIR="/data/data/com.tclabs.codeStudio/codestudio/core"
-TERMUX_REPO__APPS_DIR="/data/data/com.tclabs.codeStudio/codestudio/app"
-TERMUX_REPO__ROOTFS="/data/data/com.tclabs.codeStudio/files"
-TERMUX_REPO__HOME="/data/data/com.tclabs.codeStudio/files/home"
-TERMUX_REPO__PREFIX="/data/data/com.tclabs.codeStudio/files/usr"
+TERMUX_REPO_APP__PACKAGE_NAME="com.tclabs.codestudio"
+TERMUX_REPO_APP__DATA_DIR="/data/data/com.tclabs.codestudio"
+TERMUX_REPO__CORE_DIR="/data/data/com.tclabs.codestudio/termux/core"
+TERMUX_REPO__APPS_DIR="/data/data/com.tclabs.codestudio/termux/app"
+TERMUX_REPO__ROOTFS="/data/data/com.tclabs.codestudio/files"
+TERMUX_REPO__HOME="/data/data/com.tclabs.codestudio/files/home"
+TERMUX_REPO__PREFIX="/data/data/com.tclabs.codestudio/files/usr"
 
 
 
@@ -2231,10 +2231,10 @@ TERMUX_CLEANUP_BUILT_PACKAGES_THRESHOLD="$(( 5 * 1024 ** 3 ))" # 5 GiB
 __termux_build_props__add_variables_validator_actions "TERMUX_CLEANUP_BUILT_PACKAGES_THRESHOLD" "unsigned_int"
 
 # Path to CGCT tools
-CGCT_DEFAULT_PREFIX="/data/data/com.tclabs.codeStudio/files/usr/glibc"
+CGCT_DEFAULT_PREFIX="/data/data/com.tclabs.codestudio/files/usr/glibc"
 __termux_build_props__add_variables_validator_actions "CGCT_DEFAULT_PREFIX" "safe_absolute_path invalid_termux_prefix_paths"
 
-export CGCT_DIR="/data/data/com.tclabs.codeStudio/cgct"
+export CGCT_DIR="/data/data/com.tclabs.codestudio/cgct"
 __termux_build_props__add_variables_validator_actions "CGCT_DIR" "safe_absolute_path invalid_termux_prefix_paths"
 
 # Allow to override setup.
@@ -2401,7 +2401,7 @@ range \`[a-zA-Z0-9+,.=_-]\`. The path must not contain single \`/./\` or double 
                 safe_rootfs_or_absolute_path)
                     if [[ ! "$variable_value" =~ ${TERMUX_REGEX__SAFE_ROOTFS_OR_ABSOLUTE_PATH:?} ]] || \
                             [[ "$variable_value" =~ ${TERMUX_REGEX__SINGLE_OR_DOUBLE_DOT_CONTAINING_PATH:?} ]]; then
-                        echo "The $variable_name '$variable_value" with length ${#variable_value} is invalid." 1>&2
+                        echo "The $variable_name '$variable_value' with length ${#variable_value} is invalid." 1>&2
                         echo "The $variable_name must match (rootfs \`/\`) or (a safe absolute path that starts with a \`/\`). \
 Duplicate or trailing path separators \`/\` are not allowed. The path component characters must be in the \
 range \`[a-zA-Z0-9+,.=_-]\`. The path must not contain single \`/./\` or double \`/../\` dot components." 1>&2
@@ -2537,7 +2537,7 @@ including the null \`\0\` terminator." 1>&2
     fi
 
     if [[ "$TERMUX__PREFIX" == "$TERMUX__PREFIX_GLIBC" ]]; then
-        echo "The TERMUX__PREFIX '$TERMUX__PREFIX" or TERMUX__PREFIX_GLIBC '$TERMUX__PREFIX_GLIBC' is invalid." 1>&2
+        echo "The TERMUX__PREFIX '$TERMUX__PREFIX' or TERMUX__PREFIX_GLIBC '$TERMUX__PREFIX_GLIBC' is invalid." 1>&2
         echo "The TERMUX__PREFIX must not be equal to TERMUX__PREFIX_GLIBC." 1>&2
         return 1
     fi
