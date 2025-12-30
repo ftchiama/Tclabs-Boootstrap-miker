@@ -1,4 +1,4 @@
-name: Generate now sem skiped
+name: Generate Bootstrap for com.tclabs.codeStudio
 
 on:
   workflow_dispatch:
@@ -12,8 +12,8 @@ concurrency:
 jobs:
   build:
     permissions:
-      contents: read # actions/upload-artifact doesn't need contents: write
-    runs-on: ubuntu-slim
+      contents: read
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         arch:
@@ -24,45 +24,90 @@ jobs:
     steps:
       - name: Git clone
         uses: actions/checkout@v6
-      - name: Create bootstrap archive
-        run: ./scripts/generate-bootstraps.sh --architectures ${{ matrix.arch }}
+      
+      - name: Setup Docker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker.io
+          sudo usermod -aG docker $USER
+      
+      - name: Configure package name
+        run: |
+          # Usar sed para mudar TODAS as referências no properties.sh
+          sed -i 's/com\.termux/com.tclabs.codeStudio/g' scripts/properties.sh
+          sed -i 's/TERMUX_APP__PACKAGE_NAME="com.termux"/TERMUX_APP__PACKAGE_NAME="com.tclabs.codeStudio"/g' scripts/properties.sh
+          sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codeStudio"/g' scripts/properties.sh
+          
+          # Verificar
+          echo "=== Configuração atual: ==="
+          grep "TERMUX_APP" scripts/properties.sh
+      
+      - name: Build bootstrap from source
+        run: |
+          # Usar build-bootstraps.sh que COMPILA os pacotes
+          chmod +x scripts/run-docker.sh
+          chmod +x scripts/build-bootstraps.sh
+          
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
+            --architectures ${{ matrix.arch }} \
+            --add termux-tools \
+            --add termux-exec \
+            -f  # Forçar recompilação completa
+      
+      - name: Rename bootstrap files
+        run: |
+          # Renomear para identificar
+          for file in bootstrap-*.zip; do
+            mv "$file" "codestudio-${file}"
+          done
+          ls -lh *.zip
+      
       - name: Store artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: bootstrap-archives-${{ matrix.arch }}-${{ github.sha }}
-          path: "*.zip"
+          name: bootstrap-codestudio-${{ matrix.arch }}
+          path: "codestudio-*.zip"
+  
   publish:
     permissions:
-      contents: write # for git push
+      contents: write
     needs: build
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     steps:
       - name: Git clone
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+      
       - name: Fetch bootstrap archives
         uses: actions/download-artifact@v7
         with:
           merge-multiple: true
           path: ./
+      
       - name: Create new tag
         id: get_tag
         run: |
-          new_tag="bootstrap-$(date "+%Y.%m.%d")"
-          existing_tag_revision=$(git tag | grep "$new_tag" | sort -r | head -n 1 | cut -d- -f3 | cut -dr -f2)
-          if [ -n "$existing_tag_revision" ]; then
-            tag_rev=$((existing_tag_revision + 1))
+          new_tag="bootstrap-codestudio-$(date "+%Y.%m.%d")"
+          existing_tags=$(git tag | grep "^bootstrap-codestudio-" || true)
+          if echo "$existing_tags" | grep -q "$new_tag"; then
+            tag_rev=$(echo "$existing_tags" | grep "$new_tag" | sort -V | tail -1 | cut -d- -f4 | cut -dr -f2)
+            tag_rev=$((tag_rev + 1))
           else
             tag_rev=1
           fi
-          new_tag="${new_tag}-r${tag_rev}+apt.android-7"
+          new_tag="${new_tag}-r${tag_rev}"
           echo "tag_name=$new_tag" >> $GITHUB_OUTPUT
-      - name: Publish bootstrap zips to GitHub release
+      
+      - name: Publish bootstrap zips
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create ${{ steps.get_tag.outputs.tag_name }} --title "Bootstrap archives for Termux application (apt.android-7)"
+          # Criar release
+          gh release create "${{ steps.get_tag.outputs.tag_name }}" \
+            --title "CodeStudio Bootstraps $(date '+%Y.%m.%d')" \
+            --notes "Bootstrap archives for com.tclabs.codeStudio"
+          
+          # Upload dos arquivos
           for file in *.zip; do
-            gh release upload ${{ steps.get_tag.outputs.tag_name }} "$file"
+            echo "Uploading $file..."
+            gh release upload "${{ steps.get_tag.outputs.tag_name }}" "$file" --clobber
           done
