@@ -1,4 +1,4 @@
-name: tclabs bootstrap
+name: tclabs bootstrap2
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     permissions:
-      contents: read # actions/upload-artifact doesn't need contents: write
+      contents: read
     runs-on: ubuntu-slim
     env:
       TERMUX_APP_PACKAGE: "com.tclabs.codestudio"
@@ -26,16 +26,29 @@ jobs:
     steps:
       - name: Git clone
         uses: actions/checkout@v6
+      
+      - name: Setup build environment
+        run: |
+          # Criar diretório /data que o Termux espera
+          sudo mkdir -p /data
+          # Criar arquivo com a arquitetura atual
+          echo "${{ matrix.arch }}" | sudo tee /data/TERMUX_ARCH
+          # Verificar
+          echo "Arquitetura definida: $(cat /data/TERMUX_ARCH)"
+          echo "Diretório /data criado com sucesso"
+      
       - name: Create bootstrap archive
         run: ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}
+      
       - name: Store artifacts
         uses: actions/upload-artifact@v6
         with:
           name: bootstrap-archives-${{ matrix.arch }}-${{ github.sha }}
           path: "*.zip"
+  
   publish:
     permissions:
-      contents: write # for git push
+      contents: write
     needs: build
     runs-on: ubuntu-slim
     steps:
@@ -43,11 +56,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      
       - name: Fetch bootstrap archives
         uses: actions/download-artifact@v7
         with:
           merge-multiple: true
           path: ./
+      
       - name: Create new tag
         id: get_tag
         run: |
@@ -60,11 +75,12 @@ jobs:
           fi
           new_tag="${new_tag}-r${tag_rev}+apt.android-7"
           echo "tag_name=$new_tag" >> $GITHUB_OUTPUT
+      
       - name: Publish bootstrap zips to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create ${{ steps.get_tag.outputs.tag_name }} --title "Bootstrap archives for Termux application (apt.android-7)"
+          gh release create ${{ steps.get_tag.outputs.tag_name }} --title "Bootstrap archives for CodeStudio application (apt.android-7)"
           for file in *.zip; do
             gh release upload ${{ steps.get_tag.outputs.tag_name }} "$file"
           done
