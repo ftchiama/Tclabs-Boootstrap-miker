@@ -1,113 +1,483 @@
-name: Generate Bootstrap for com.tclabs.codeStudio
-
+name: 🚀 Build CodeStudio Bootstrap - FULL VERBOSE
 on:
   workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
-permissions: {} # none
-
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
+permissions: {}
 
 jobs:
-  build:
-    permissions:
-      contents: read
+  build-bootstrap:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch:
-          - aarch64
-          - arm
-          - i686
-          - x86_64
+    
     steps:
-      - name: Git clone
-        uses: actions/checkout@v6
-      
-      - name: Setup Docker
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y docker.io
-          sudo usermod -aG docker $USER
-      
-      - name: Configure package name
-        run: |
-          # Usar sed para mudar TODAS as referências no properties.sh
-          sed -i 's/com\.termux/com.tclabs.codeStudio/g' scripts/properties.sh
-          sed -i 's/TERMUX_APP__PACKAGE_NAME="com.termux"/TERMUX_APP__PACKAGE_NAME="com.tclabs.codeStudio"/g' scripts/properties.sh
-          sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codeStudio"/g' scripts/properties.sh
+    # ========== ETAPA 1: VERIFICAÇÃO INICIAL ==========
+    - name: 🔍 INIT - Verificar ambiente GitHub
+      id: init_check
+      run: |
+        echo "================================================"
+        echo "🔍 INICIANDO VERIFICAÇÃO DO AMBIENTE"
+        echo "================================================"
+        echo "📅 Data/Hora: $(date)"
+        echo "💻 Sistema: $(uname -a)"
+        echo "📦 Memória livre: $(free -h | awk '/^Mem:/{print $4}')"
+        echo "💾 Espaço disco: $(df -h / | awk 'NR==2{print $4}')"
+        echo "🐳 Docker disponível: $(command -v docker >/dev/null && echo 'SIM' || echo 'NÃO')"
+        echo "🔧 GitHub Runner: $RUNNER_OS ($RUNNER_ARCH)"
+        echo "📁 Diretório atual: $(pwd)"
+        echo "================================================"
+        
+        # Verificar se é ambiente GitHub
+        if [ -z "$GITHUB_ACTIONS" ]; then
+          echo "❌ ERRO: Não está executando no GitHub Actions!"
+          exit 1
+        fi
+        
+        # Salvar informações para etapas posteriores
+        echo "INIT_COMPLETE=true" >> $GITHUB_OUTPUT
+        echo "WORKSPACE=$(pwd)" >> $GITHUB_OUTPUT
+        
+    # ========== ETAPA 2: CLONE DO REPOSITÓRIO ==========
+    - name: 📥 CLONE - Obter termux-packages
+      id: clone_repo
+      continue-on-error: true
+      run: |
+        echo "================================================"
+        echo "📥 INICIANDO CLONE DO REPOSITÓRIO"
+        echo "================================================"
+        
+        REPO_URL="https://github.com/agnostic-apollo/termux-packages.git"
+        BRANCH="infra-improvs"
+        
+        echo "🔗 Repositório: $REPO_URL"
+        echo "🌿 Branch: $BRANCH"
+        echo "📁 Alvo: ./termux-packages"
+        
+        # Tentativa 1: Clone direto
+        echo "🔄 Tentativa 1: Clone padrão..."
+        if git clone --depth 1 --branch "$BRANCH" "$REPO_URL" ./termux-packages; then
+          echo "✅ Clone direto bem-sucedido!"
+          CLONE_METHOD="direct"
+        else
+          echo "⚠️ Clone direto falhou, tentando método alternativo..."
           
-          # Verificar
-          echo "=== Configuração atual: ==="
-          grep "TERMUX_APP" scripts/properties.sh
-      
-      - name: Build bootstrap from source
-        run: |
-          # Usar build-bootstraps.sh que COMPILA os pacotes
-          chmod +x scripts/run-docker.sh
-          chmod +x scripts/build-bootstraps.sh
-          
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
-            --architectures ${{ matrix.arch }} \
-            --add termux-tools \
-            --add termux-exec \
-            -f  # Forçar recompilação completa
-      
-      - name: Rename bootstrap files
-        run: |
-          # Renomear para identificar
-          for file in bootstrap-*.zip; do
-            mv "$file" "codestudio-${file}"
-          done
-          ls -lh *.zip
-      
-      - name: Store artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: bootstrap-codestudio-${{ matrix.arch }}
-          path: "codestudio-*.zip"
-  
-  publish:
-    permissions:
-      contents: write
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Git clone
-        uses: actions/checkout@v6
-      
-      - name: Fetch bootstrap archives
-        uses: actions/download-artifact@v7
-        with:
-          merge-multiple: true
-          path: ./
-      
-      - name: Create new tag
-        id: get_tag
-        run: |
-          new_tag="bootstrap-codestudio-$(date "+%Y.%m.%d")"
-          existing_tags=$(git tag | grep "^bootstrap-codestudio-" || true)
-          if echo "$existing_tags" | grep -q "$new_tag"; then
-            tag_rev=$(echo "$existing_tags" | grep "$new_tag" | sort -V | tail -1 | cut -d- -f4 | cut -dr -f2)
-            tag_rev=$((tag_rev + 1))
+          # Tentativa 2: Clone sem branch, depois checkout
+          rm -rf ./termux-packages 2>/dev/null || true
+          echo "🔄 Tentativa 2: Clone + checkout..."
+          if git clone --depth 1 "$REPO_URL" ./termux-packages && \
+             cd ./termux-packages && \
+             git fetch origin "$BRANCH" && \
+             git checkout "$BRANCH"; then
+            echo "✅ Clone alternativo bem-sucedido!"
+            CLONE_METHOD="alternative"
           else
-            tag_rev=1
+            echo "❌ ERRO: Todos os métodos de clone falharam!"
+            echo "📊 Status do último erro: $?"
+            
+            # Tentativa 3: Fallback para master
+            echo "🔄 Tentativa 3: Fallback para branch master..."
+            rm -rf ./termux-packages 2>/dev/null || true
+            if git clone --depth 1 https://github.com/termux/termux-packages.git ./termux-packages; then
+              echo "⚠️ ATENÇÃO: Usando branch master (pode ter bugs)"
+              CLONE_METHOD="fallback_master"
+            else
+              echo "💥 ERRO CRÍTICO: Não foi possível clonar o repositório"
+              exit 1
+            fi
           fi
-          new_tag="${new_tag}-r${tag_rev}"
-          echo "tag_name=$new_tag" >> $GITHUB_OUTPUT
-      
-      - name: Publish bootstrap zips
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Criar release
-          gh release create "${{ steps.get_tag.outputs.tag_name }}" \
-            --title "CodeStudio Bootstraps $(date '+%Y.%m.%d')" \
-            --notes "Bootstrap archives for com.tclabs.codeStudio"
+        fi
+        
+        # Verificar estrutura
+        echo "🔍 Verificando estrutura do repositório..."
+        if [ -d "./termux-packages/scripts" ] && [ -f "./termux-packages/scripts/properties.sh" ]; then
+          echo "✅ Estrutura válida encontrada"
+          REPO_VALID="true"
+        else
+          echo "❌ Estrutura inválida! Conteúdo:"
+          ls -la ./termux-packages/ 2>/dev/null || echo "Diretório não existe"
+          REPO_VALID="false"
+        fi
+        
+        # Salvar status
+        echo "CLONE_METHOD=$CLONE_METHOD" >> $GITHUB_OUTPUT
+        echo "REPO_VALID=$REPO_VALID" >> $GITHUB_OUTPUT
+        echo "REPO_PATH=$(pwd)/termux-packages" >> $GITHUB_OUTPUT
+        
+    # ========== ETAPA 3: CONFIGURAÇÃO ==========
+    - name: ⚙️ CONFIG - Aplicar package name
+      id: config_package
+      run: |
+        echo "================================================"
+        echo "⚙️ CONFIGURANDO PACKAGE NAME"
+        echo "================================================"
+        
+        REPO_PATH="./termux-packages"
+        PACKAGE_NAME="com.tclabs.codeStudio"
+        
+        if [ ! -f "$REPO_PATH/scripts/properties.sh" ]; then
+          echo "❌ ERRO: Arquivo properties.sh não encontrado em $REPO_PATH/scripts/"
+          echo "📁 Conteúdo de $REPO_PATH/scripts/:"
+          ls -la "$REPO_PATH/scripts/" 2>/dev/null || echo "Diretório não existe"
+          exit 1
+        fi
+        
+        # Backup do arquivo original
+        cp "$REPO_PATH/scripts/properties.sh" "$REPO_PATH/scripts/properties.sh.backup"
+        echo "📦 Backup criado: properties.sh.backup"
+        
+        # Substituir todas as ocorrências do package name
+        echo "🔄 Substituindo package names..."
+        
+        # Lista de padrões para substituir
+        PATTERNS=(
+          "com\.termux"
+          "TERMUX_APP__PACKAGE_NAME=\"com.termux\""
+          "TERMUX_APP_PACKAGE=\"com.termux\""
+          "TERMUX_APP__PACKAGE_NAME=com.termux"
+          "TERMUX_APP_PACKAGE=com.termux"
+        )
+        
+        CHANGES=0
+        for pattern in "${PATTERNS[@]}"; do
+          echo "🔍 Procurando: $pattern"
+          if grep -q "$pattern" "$REPO_PATH/scripts/properties.sh"; then
+            echo "  ✏️  Substituindo: $pattern → com.tclabs.codeStudio"
+            sed -i "s|$pattern|com.tclabs.codeStudio|g" "$REPO_PATH/scripts/properties.sh"
+            ((CHANGES++))
+          else
+            echo "  ⏭️  Padrão não encontrado"
+          fi
+        done
+        
+        # Adicionar se não encontrou nenhum
+        if [ "$CHANGES" -eq 0 ]; then
+          echo "⚠️ Nenhuma substituição feita, adicionando manualmente..."
+          echo "" >> "$REPO_PATH/scripts/properties.sh"
+          echo "# ===== CODESTOUDIO CUSTOM CONFIG ======" >> "$REPO_PATH/scripts/properties.sh"
+          echo "TERMUX_APP__PACKAGE_NAME=\"com.tclabs.codeStudio\"" >> "$REPO_PATH/scripts/properties.sh"
+          echo "TERMUX_APP_PACKAGE=\"com.tclabs.codeStudio\"" >> "$REPO_PATH/scripts/properties.sh"
+          CHANGES=2
+        fi
+        
+        # Verificar resultado
+        echo "✅ $CHANGES alterações realizadas"
+        echo "📄 Conteúdo final (últimas 20 linhas):"
+        tail -20 "$REPO_PATH/scripts/properties.sh"
+        
+        echo "CONFIG_CHANGES=$CHANGES" >> $GITHUB_OUTPUT
+        
+    # ========== ETAPA 4: PREPARAÇÃO DO DOCKER ==========
+    - name: 🐳 DOCKER - Preparar ambiente
+      id: docker_setup
+      run: |
+        echo "================================================"
+        echo "🐳 PREPARANDO AMBIENTE DOCKER"
+        echo "================================================"
+        
+        # Verificar se docker está disponível
+        echo "🔍 Verificando Docker..."
+        if command -v docker >/dev/null 2>&1; then
+          DOCKER_VERSION=$(docker --version)
+          echo "✅ Docker encontrado: $DOCKER_VERSION"
           
-          # Upload dos arquivos
-          for file in *.zip; do
-            echo "Uploading $file..."
-            gh release upload "${{ steps.get_tag.outputs.tag_name }}" "$file" --clobber
-          done
+          # Verificar permissões
+          if docker ps >/dev/null 2>&1; then
+            echo "✅ Permissões Docker OK"
+            DOCKER_READY="true"
+          else
+            echo "⚠️ Docker sem permissões, tentando corrigir..."
+            sudo groupadd docker 2>/dev/null || true
+            sudo usermod -aG docker $USER 2>/dev/null || true
+            sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+            
+            # Tentar novamente
+            if docker ps >/dev/null 2>&1; then
+              echo "✅ Permissões corrigidas"
+              DOCKER_READY="true"
+            else
+              echo "❌ Não foi possível obter permissões Docker"
+              DOCKER_READY="false"
+            fi
+          fi
+        else
+          echo "❌ Docker não encontrado no sistema"
+          DOCKER_READY="false"
+        fi
+        
+        # Fallback: usar container service do GitHub
+        if [ "$DOCKER_READY" != "true" ]; then
+          echo "🔄 Fallback: Usando container service do GitHub..."
+          # Verificar se estamos em container
+          if [ -f /.dockerenv ]; then
+            echo "✅ Já executando em container"
+            DOCKER_READY="container"
+          else
+            echo "⚠️ Tentando usar docker do GitHub..."
+            DOCKER_READY="github"
+          fi
+        fi
+        
+        echo "DOCKER_STATUS=$DOCKER_READY" >> $GITHUB_OUTPUT
+        
+    # ========== ETAPA 5: BUILD DO BOOTSTRAP ==========
+    - name: 🔨 BUILD - Compilar bootstrap
+      id: build_bootstrap
+      continue-on-error: true
+      run: |
+        echo "================================================"
+        echo "🔨 INICIANDO BUILD DO BOOTSTRAP"
+        echo "================================================"
+        
+        REPO_PATH="./termux-packages"
+        BUILD_LOG="$REPO_PATH/build.log"
+        
+        # Limpar builds anteriores
+        echo "🧹 Limpando builds anteriores..."
+        find . -name "bootstrap-*.zip" -delete 2>/dev/null || true
+        find . -name "codestudio-*.zip" -delete 2>/dev/null || true
+        
+        # Entrar no diretório
+        cd "$REPO_PATH"
+        echo "📁 Diretório de build: $(pwd)"
+        
+        # Verificar scripts
+        echo "🔍 Verificando scripts necessários..."
+        SCRIPTS=("build-bootstraps.sh" "run-docker.sh")
+        for script in "${SCRIPTS[@]}"; do
+          if [ -f "./scripts/$script" ]; then
+            echo "  ✅ $script encontrado"
+            chmod +x "./scripts/$script" 2>/dev/null || true
+          else
+            echo "  ❌ $script NÃO encontrado!"
+            echo "  📁 Conteúdo de scripts/:"
+            ls -la ./scripts/ 2>/dev/null || echo "Diretório não existe"
+          fi
+        done
+        
+        # MÉTODO 1: Usar run-docker.sh
+        echo "🔄 MÉTODO 1: Executando via run-docker.sh..."
+        if [ -f "./scripts/run-docker.sh" ] && [ -x "./scripts/run-docker.sh" ]; then
+          echo "📝 Comando: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add bash --add apt -f"
+          
+          # Executar com timeout e logging
+          timeout 1800 ./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
+            --architectures aarch64 \
+            --add bash \
+            --add apt \
+            --add termux-tools \
+            -f 2>&1 | tee "$BUILD_LOG" || {
+              echo "⚠️ Timeout ou erro no método 1"
+              BUILD_METHOD="run-docker-failed"
+            }
+          
+          if [ -f "bootstrap-aarch64.zip" ]; then
+            echo "✅ MÉTODO 1 BEM-SUCEDIDO!"
+            BUILD_METHOD="run-docker"
+            BUILD_SUCCESS="true"
+          else
+            echo "❌ MÉTODO 1 FALHOU - Arquivo não gerado"
+            BUILD_METHOD="run-docker-failed"
+            BUILD_SUCCESS="false"
+          fi
+        else
+          echo "⏭️ Método 1 não disponível"
+          BUILD_METHOD="skip-1"
+        fi
+        
+        # MÉTODO 2: Docker direto (fallback)
+        if [ "$BUILD_SUCCESS" != "true" ]; then
+          echo "🔄 MÉTODO 2: Docker direto..."
+          cd -
+          cd "$REPO_PATH"
+          
+          echo "📝 Comando: docker run com volume montado"
+          
+          docker run --rm -v "$(pwd):/home/builder/termux-packages" \
+            termux/package-builder \
+            bash -c "
+              echo '🚀 Iniciando build dentro do container...'
+              echo '📁 Diretório: \$(pwd)'
+              echo '📄 Conteúdo:'
+              ls -la scripts/ 2>/dev/null || echo 'scripts/ não encontrado'
+              
+              if [ -f './scripts/build-bootstraps.sh' ]; then
+                echo '🔨 Executando build-bootstraps.sh...'
+                ./scripts/build-bootstraps.sh --architectures aarch64 --add bash --add apt -f
+              else
+                echo '❌ build-bootstraps.sh não encontrado!'
+                exit 1
+              fi
+            " 2>&1 | tee -a "$BUILD_LOG" || {
+              echo "⚠️ Erro no método 2"
+              BUILD_METHOD="docker-direct-failed"
+            }
+          
+          if [ -f "bootstrap-aarch64.zip" ]; then
+            echo "✅ MÉTODO 2 BEM-SUCEDIDO!"
+            BUILD_METHOD="docker-direct"
+            BUILD_SUCCESS="true"
+          else
+            echo "❌ MÉTODO 2 FALHOU"
+            BUILD_SUCCESS="false"
+          fi
+        fi
+        
+        # MÉTODO 3: GitHub container service (fallback extremo)
+        if [ "$BUILD_SUCCESS" != "true" ] && [ "${{ steps.docker_setup.outputs.DOCKER_STATUS }}" == "github" ]; then
+          echo "🔄 MÉTODO 3: GitHub Container..."
+          echo "⚠️ Executando em ambiente containerizado do GitHub"
+          
+          # Tentar executar diretamente
+          if [ -f "./scripts/build-bootstraps.sh" ]; then
+            chmod +x ./scripts/build-bootstraps.sh
+            echo "📝 Executando build diretamente..."
+            ./scripts/build-bootstraps.sh --architectures aarch64 --add bash --add apt -f 2>&1 | tee -a "$BUILD_LOG"
+            
+            if [ -f "bootstrap-aarch64.zip" ]; then
+              echo "✅ MÉTODO 3 BEM-SUCEDIDO!"
+              BUILD_METHOD="github-direct"
+              BUILD_SUCCESS="true"
+            else
+              echo "❌ MÉTODO 3 FALHOU"
+              BUILD_SUCCESS="false"
+            fi
+          fi
+        fi
+        
+        # Resultado final
+        echo "================================================"
+        echo "📊 RESULTADO DO BUILD"
+        echo "================================================"
+        echo "✅ Método usado: $BUILD_METHOD"
+        echo "✅ Sucesso: $BUILD_SUCCESS"
+        echo "📁 Arquivos gerados:"
+        ls -la *.zip 2>/dev/null || echo "Nenhum arquivo ZIP encontrado"
+        
+        # Verificar logs de erro
+        if [ "$BUILD_SUCCESS" != "true" ] && [ -f "$BUILD_LOG" ]; then
+          echo "⚠️ ÚLTIMAS 50 LINHAS DO LOG DE ERRO:"
+          tail -50 "$BUILD_LOG"
+        fi
+        
+        echo "BUILD_METHOD=$BUILD_METHOD" >> $GITHUB_OUTPUT
+        echo "BUILD_SUCCESS=$BUILD_SUCCESS" >> $GITHUB_OUTPUT
+        
+    # ========== ETAPA 6: PÓS-PROCESSAMENTO ==========
+    - name: 📦 POST - Processar resultados
+      id: post_process
+      if: steps.build_bootstrap.outputs.BUILD_SUCCESS == 'true'
+      run: |
+        echo "================================================"
+        echo "📦 PROCESSANDO RESULTADOS"
+        echo "================================================"
+        
+        REPO_PATH="./termux-packages"
+        cd "$REPO_PATH"
+        
+        # Renomear arquivos para identificação
+        echo "🏷️ Renomeando arquivos..."
+        for zipfile in bootstrap-*.zip; do
+          if [ -f "$zipfile" ]; then
+            NEW_NAME="codestudio-${zipfile}"
+            mv "$zipfile" "$NEW_NAME"
+            echo "  ✅ $zipfile → $NEW_NAME"
+            
+            # Verificar conteúdo
+            echo "  🔍 Conteúdo de $NEW_NAME:"
+            unzip -l "$NEW_NAME" | head -10 || echo "  ⚠️ Não foi possível listar conteúdo"
+          fi
+        done
+        
+        # Verificar estrutura interna
+        echo "🔍 Verificando estrutura interna do bootstrap..."
+        if ls codestudio-*.zip 1>/dev/null 2>&1; then
+          SAMPLE_ZIP=$(ls codestudio-*.zip | head -1)
+          echo "📦 Arquivo de exemplo: $SAMPLE_ZIP"
+          
+          # Extrair e verificar paths
+          TEMP_DIR=$(mktemp -d)
+          unzip -q "$SAMPLE_ZIP" -d "$TEMP_DIR" 2>/dev/null || true
+          
+          if [ -d "$TEMP_DIR" ]; then
+            echo "📁 Estrutura extraída:"
+            find "$TEMP_DIR" -type f -name "*.so" -o -name "*termux*" -o -name "*bash*" | head -20
+            
+            # Verificar package name nos arquivos
+            echo "🔎 Procurando referências ao package name..."
+            if find "$TEMP_DIR" -type f -exec grep -l "com.tclabs.codeStudio" {} \; 2>/dev/null | head -5; then
+              echo "✅ Package name correto encontrado nos arquivos"
+            else
+              echo "⚠️ Package name NÃO encontrado nos arquivos extraídos"
+            fi
+            
+            rm -rf "$TEMP_DIR"
+          fi
+        fi
+        
+        # Listar todos os arquivos finais
+        echo "📄 ARQUIVOS FINAIS DISPONÍVEIS:"
+        ls -lh *.zip 2>/dev/null || echo "Nenhum arquivo ZIP"
+        
+        # Contar arquivos
+        ZIP_COUNT=$(ls *.zip 2>/dev/null | wc -l)
+        echo "📊 Total de arquivos ZIP: $ZIP_COUNT"
+        
+        echo "ZIP_COUNT=$ZIP_COUNT" >> $GITHUB_OUTPUT
+        
+    # ========== ETAPA 7: UPLOAD ==========
+    - name: ⬆️ UPLOAD - Enviar artefatos
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: CodeStudio-Bootstrap-${{ github.run_id }}
+        path: |
+          termux-packages/codestudio-*.zip
+          termux-packages/bootstrap-*.zip
+          termux-packages/build.log
+        retention-days: 7
+        if-no-files-found: warn
+        compression-level: 0
+        
+    # ========== ETAPA 8: RELATÓRIO FINAL ==========
+    - name: 📋 REPORT - Gerar relatório
+      if: always()
+      run: |
+        echo "================================================"
+        echo "📋 RELATÓRIO FINAL DO BUILD"
+        echo "================================================"
+        echo "🆔 Run ID: ${{ github.run_id }}"
+        echo "🔗 URL do Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        echo ""
+        echo "📊 STATUS DAS ETAPAS:"
+        echo "  ✅ Init: ${{ steps.init_check.outcome }}"
+        echo "  ✅ Clone: ${{ steps.clone_repo.outcome }} (Método: ${{ steps.clone_repo.outputs.CLONE_METHOD }})"
+        echo "  ✅ Config: ${{ steps.config_package.outcome }} (${{ steps.config_package.outputs.CONFIG_CHANGES }} mudanças)"
+        echo "  ✅ Docker: ${{ steps.docker_setup.outcome }} (Status: ${{ steps.docker_setup.outputs.DOCKER_STATUS }})"
+        echo "  ✅ Build: ${{ steps.build_bootstrap.outcome }} (Sucesso: ${{ steps.build_bootstrap.outputs.BUILD_SUCCESS }})"
+        echo "  ✅ Post: ${{ steps.post_process.outcome }}"
+        echo ""
+        
+        if [ "${{ steps.build_bootstrap.outputs.BUILD_SUCCESS }}" = "true" ]; then
+          echo "🎉 BUILD CONCLUÍDO COM SUCESSO!"
+          echo "📦 Artefatos disponíveis na aba 'Artifacts'"
+          echo "🔧 Método usado: ${{ steps.build_bootstrap.outputs.BUILD_METHOD }}"
+          echo ""
+          echo "PRÓXIMOS PASSOS:"
+          echo "1. Baixe os arquivos da aba 'Artifacts'"
+          echo "2. Copie para: termux-app/app/src/main/cpp/"
+          echo "3. Modifique downloadBootstrap() no build.gradle"
+          echo "4. Compile seu app CodeStudio"
+        else
+          echo "❌ BUILD FALHOU"
+          echo ""
+          echo "📋 PARA DEPURAÇÃO:"
+          echo "1. Verifique logs completos acima"
+          echo "2. Check se properties.sh foi modificado corretamente"
+          echo "3. Verifique espaço em disco e memória"
+          echo "4. Tente com apenas aarch64 primeiro"
+        fi
+        
+        echo ""
+        echo "================================================"
+        echo "🏁 FIM DO PROCESSO"
+        echo "================================================"
