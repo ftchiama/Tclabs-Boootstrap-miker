@@ -1,216 +1,74 @@
-
-name: Build Termux Bootstrap - ORIGINAL METHOD
+name: Build Custom Bootstrap TCLabs
 
 on:
-  workflow_dispatch:
-    inputs:
-      architectures:
-        description: 'Use aarch64 ONLY for first test'
-        required: true
-        default: 'aarch64'
-      clean_build:
-        description: 'Force clean build (-f flag)'
-        required: true
-        default: 'true'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
-
-env:
-  # This should match what's in scripts/properties.sh
-  EXPECTED_PACKAGE: "com.tclabs.codestudio"
+  workflow_dispatch: # Permite iniciar manualmente pelo painel do GitHub
 
 jobs:
-  build:
-    name: Build Bootstrap Archives
-    runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 horas - build pode ser lento
+  build-bootstrap:
+    runs-on: ubuntu-latest # Usamos ubuntu-latest pois o build-bootstrap precisa de Docker/dependências
+    strategy:
+      matrix:
+        arch: [aarch64, arm, i686, x86_64]
     
     steps:
-      - name: Checkout repository
+      - name: Checkout do Repositório (termux-packages)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          
-      - name: Verify critical files
-        run: |
-          echo "=== VERIFICANDO ARQUIVOS ESSENCIAIS ==="
-          
-          # 1. Check build-bootstraps.sh exists
-          if [ ! -f "scripts/build-bootstraps.sh" ]; then
-            echo "❌ ERROR: scripts/build-bootstraps.sh not found!"
-            echo "This script is ESSENTIAL per the tutorial"
-            echo "Get it from: https://github.com/termux/termux-packages/blob/master/scripts/build-bootstraps.sh"
-            exit 1
-          else
-            echo "✅ scripts/build-bootstraps.sh found"
-            chmod +x scripts/build-bootstraps.sh
-          fi
-          
-          # 2. Check run-docker.sh exists (DO NOT MODIFY IT!)
-          if [ ! -f "scripts/run-docker.sh" ]; then
-            echo "❌ ERROR: scripts/run-docker.sh not found!"
-            echo "This is part of the original termux-packages"
-            exit 1
-          else
-            echo "✅ scripts/run-docker.sh found"
-            chmod +x scripts/run-docker.sh
-            echo "⚠️  DO NOT MODIFY run-docker.sh - use it as-is"
-          fi
-          
-          # 3. Check properties.sh has correct package name
-          if [ ! -f "scripts/properties.sh" ]; then
-            echo "❌ ERROR: scripts/properties.sh not found!"
-            echo "Create it with: TERMUX_APP_PACKAGE=\"com.tclabs.codestudio\""
-            exit 1
-          else
-            echo "✅ scripts/properties.sh found"
-            echo "=== Current TERMUX_APP_PACKAGE ==="
-            grep -i "TERMUX_APP_PACKAGE" scripts/properties.sh || echo "NOT FOUND IN FILE"
-          fi
+          fetch-depth: 1
 
-      - name: Check properties.sh configuration
-        id: check_props
+      - name: Configurar Ambiente e Mudar Pacote
         run: |
-          # Extract current package name
-          CURRENT_PACKAGE=$(grep -i "TERMUX_APP_PACKAGE" scripts/properties.sh | head -1 | cut -d'=' -f2 | tr -d ' "\047' | tr -d "'")
+          echo "[-] Iniciando alteração do pacote para: com.tclabs.codestudio"
+          # Altera a variável global de pacote no script de propriedades do termux-packages
+          sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codestudio"/g' ./scripts/properties.sh
           
-          echo "Current TERMUX_APP_PACKAGE: '$CURRENT_PACKAGE'"
-          echo "Expected: '${{ env.EXPECTED_PACKAGE }}'"
-          
-          if [ "$CURRENT_PACKAGE" = "${{ env.EXPECTED_PACKAGE }}" ]; then
-            echo "✅ Package name correctly set"
-            echo "package_correct=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Package name INCORRECT!"
-            echo "Edit scripts/properties.sh and change to:"
-            echo "TERMUX_APP_PACKAGE=\"${{ env.EXPECTED_PACKAGE }}\""
-            echo "package_correct=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
+          # Verifica se a alteração foi aplicada com sucesso
+          grep "TERMUX_APP_PACKAGE" ./scripts/properties.sh
+          echo "[!] Pacote alterado com sucesso no arquivo de propriedades."
 
-      - name: Execute original build command (per tutorial)
-        id: execute_build
-        continue-on-error: true
+      - name: Executar Build do Bootstrap (Compilação Real)
         run: |
-          echo "=== EXECUTING ORIGINAL TUTORIAL COMMAND ==="
-          echo "Command: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ARCH -f"
-          echo ""
-          echo "⚠️  This will take SEVERAL HOURS"
-          echo "⚠️  Docker will download image first (~5-10 minutes)"
-          echo "⚠️  Then compile packages (2-4 hours for aarch64)"
+          echo "[-] Iniciando a compilação do bootstrap para a arquitetura ${{ matrix.arch }}..."
+          echo "[-] Este processo pode demorar, pois os binários serão re-vinculados ao novo caminho."
           
-          # Build command as per tutorial
-          CMD="./scripts/run-docker.sh ./scripts/build-bootstraps.sh"
-          CMD="$CMD --architectures '${{ github.event.inputs.architectures }}'"
+          # O script run-docker.sh cria o container necessário para compilar
+          # O build-bootstraps.sh gera o .zip final baseado no TERMUX_APP_PACKAGE definido anteriormente
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}
           
-          if [ "${{ github.event.inputs.clean_build }}" = "true" ]; then
-            CMD="$CMD -f"
-            echo "Using -f flag for clean build"
-          fi
-          
-          # Add log redirection as in tutorial
-          FULL_CMD="$CMD 2>&1 | tee build.log"
-          
-          echo ""
-          echo "🚀 Executing: $CMD"
-          echo ""
-          
-          # Run with timeout
-          timeout 5h bash -c "$FULL_CMD" || EXIT_CODE=$?
-          
-          if [ -n "${EXIT_CODE:-}" ]; then
-            if [ $EXIT_CODE -eq 124 ]; then
-              echo "⏰ Build timed out after 5 hours"
-              echo "build_status=timeout" >> $GITHUB_OUTPUT
-            else
-              echo "⚠️ Build exited with code: $EXIT_CODE"
-              echo "build_status=error" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "✅ Build command completed"
-            echo "build_status=completed" >> $GITHUB_OUTPUT
-          fi
-          
-          # Show end of log
-          echo ""
-          echo "=== LAST 50 LINES OF LOG ==="
-          tail -50 build.log 2>/dev/null || echo "Log file not created"
+          echo "[!] Compilação concluída para ${{ matrix.arch }}."
 
-      - name: Check for generated bootstraps
-        id: check_output
-        run: |
-          echo "=== CHECKING FOR BOOTSTRAP FILES ==="
-          
-          # Look for bootstrap zip files
-          BOOTSTRAP_COUNT=0
-          if ls bootstrap-*.zip 1> /dev/null 2>&1; then
-            BOOTSTRAP_COUNT=$(ls -1 bootstrap-*.zip | wc -l)
-            echo "✅ Found $BOOTSTRAP_COUNT bootstrap file(s):"
-            ls -lh bootstrap-*.zip
-          else
-            echo "❌ No bootstrap-*.zip files found"
-            
-            # Check if there are other outputs
-            echo ""
-            echo "=== CHECKING FOR OTHER OUTPUTS ==="
-            find . -name "*.zip" -type f | head -10
-            find . -name "*.deb" -type f | head -5
-          fi
-          
-          echo "bootstrap_count=$BOOTSTRAP_COUNT" >> $GITHUB_OUTPUT
-
-      - name: Upload results
-        if: always()
+      - name: Upload do Artefato (Bootstrap ZIP)
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifacts
-          path: |
-            ./bootstrap-*.zip
-            ./build.log
-            ./scripts/properties.sh
-          retention-days: 30
+          name: bootstrap-${{ matrix.arch }}
+          path: bootstrap-*.zip
 
-      - name: Final instructions
+  release:
+    needs: build-bootstrap
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download de todos os artefatos
+        uses: actions/download-artifact@v4
+        with:
+          path: ./bootstraps
+          merge-multiple: true
+
+      - name: Criar Release no GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "=========================================="
-          echo "       BUILD PROCESS COMPLETE"
-          echo "=========================================="
-          echo ""
-          echo "📊 RESULTS:"
-          echo "• Build status: ${{ steps.execute_build.outputs.build_status }}"
-          echo "• Bootstrap files: ${{ steps.check_output.outputs.bootstrap_count }}"
-          echo ""
+          TAG_NAME="bootstrap-tclabs-$(date +'%Y%m%d%H%M')"
+          echo "[-] Criando Release: $TAG_NAME"
           
-          if [ "${{ steps.check_output.outputs.bootstrap_count }}" -gt 0 ]; then
-            echo "🎉 SUCCESS! Bootstrap files generated!"
-            echo ""
-            echo "📥 Download from 'Artifacts' section"
-            echo ""
-            echo "🔧 NEXT STEPS (per tutorial):"
-            echo "1. Download bootstrap-aarch64.zip"
-            echo "2. Extract to: termux-app/app/src/main/cpp/"
-            echo "3. Add 'return' at start of downloadBootstrap() in build.gradle"
-            echo "4. Build your APK"
-          else
-            echo "❌ No bootstrap files generated"
-            echo ""
-            echo "🔍 TROUBLESHOOTING:"
-            echo ""
-            echo "COMMON ISSUES:"
-            echo "1. Wrong TERMUX_APP_PACKAGE in scripts/properties.sh"
-            echo "   Must be: TERMUX_APP_PACKAGE=\"com.tclabs.codestudio\""
-            echo ""
-            echo "2. Missing build-bootstraps.sh script"
-            echo "   Get it from termux-packages repo"
-            echo ""
-            echo "3. Docker container issues"
-            echo "   Check build.log for 'Permission denied' errors"
-            echo ""
-            echo "4. Timeout - build takes too long"
-            echo "   Try with only 'aarch64' architecture"
-            echo ""
-            echo "📝 Check the 'build.log' in Artifacts for details"
-          fi
-          echo "=========================================="
+          gh release create "$TAG_NAME" \
+            --title "Bootstrap Custom: com.tclabs.codestudio" \
+            --notes "Arquivos bootstrap compilados para o pacote personalizado com.tclabs.codestudio. Use estes arquivos no seu termux-app customizado."
+          
+          gh release upload "$TAG_NAME" ./bootstraps/*.zip
+          echo "[!] Release publicada com sucesso!"
+
