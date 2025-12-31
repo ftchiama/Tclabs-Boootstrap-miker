@@ -1,42 +1,60 @@
-name: Build Custom Bootstrap TCLabs
+name: Build Minimal Bootstrap TCLabs
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04 # Mudança para versão mais estável
+    runs-on: ubuntu-22.04
+    # Define um limite de tempo alto para evitar interrupções do GitHub
+    timeout-minutes: 180 
+
     steps:
-      - name: Limpeza Extrema de Disco
+      - name: Liberar Espaço em Disco
         run: |
-          set -x
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/mono /usr/local/lib/node_modules /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/mono
           docker image prune -a -f
           df -h
 
-      - name: Checkout do Código
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Modificar Pacote e Iniciar Compilação
+      - name: Injetar Pacote Customizado
         run: |
-          set -e
-          # Força o diretório como seguro para o Git
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          
-          # Altera o pacote para o seu
+          # Altera o ID do pacote em todas as ocorrências de propriedades
           sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codestudio"/g' ./scripts/properties.sh
-          
-          echo "[-] Pacote alterado. Iniciando build..."
-          
-          # Executa apenas para aarch64 (celulares modernos) para evitar queda por recurso
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64
+          echo "[!] Pacote configurado para: com.tclabs.codestudio"
 
-      - name: Upload do ZIP
+      - name: Compilar Bootstrap Minimal
+        run: |
+          set -x
+          # O comando abaixo usa o run-docker para garantir isolamento
+          # --minimal foca apenas nos pacotes vitais (bash, libc, dash, apt)
+          # Isso reduz drasticamente as chances de erro na libgmp ou bibliotecas de cálculo
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --minimal --architectures aarch64
+          
+      - name: Verificar e Renomear ZIP
+        if: success()
+        run: |
+          # Garante que o arquivo gerado seja identificado facilmente
+          ls -lh *.zip
+          mv bootstrap-aarch64.zip bootstrap-tclabs-minimal-aarch64.zip
+
+      - name: Upload Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: bootstrap-tclabs-aarch64
-          path: "*.zip"
+          name: bootstrap-tclabs-minimal
+          path: bootstrap-tclabs-minimal-aarch64.zip
+
+      - name: Create Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}-tclabs
+          name: "TCLabs Bootstrap Minimal (2026)"
+          files: bootstrap-tclabs-minimal-aarch64.zip
+          body: "Bootstrap compilado para o pacote com.tclabs.codestudio usando a flag --minimal."
 
