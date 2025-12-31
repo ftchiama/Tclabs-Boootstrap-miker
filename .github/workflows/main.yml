@@ -1,47 +1,52 @@
 name: Build Custom Bootstrap TCLabs
 
 on:
-  workflow_dispatch: # Permite iniciar manualmente pelo painel do GitHub
+  workflow_dispatch:
 
 jobs:
   build-bootstrap:
-    runs-on: ubuntu-latest # Usamos ubuntu-latest pois o build-bootstrap precisa de Docker/dependências
+    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        arch: [aarch64, arm, i686, x86_64]
-    
+        # Recomendo testar primeiro apenas com aarch64 para economizar tempo e espaço
+        arch: [aarch64] 
+
     steps:
-      - name: Checkout do Repositório (termux-packages)
+      - name: Maximize Build Space (Limpeza de Disco)
+        # Esse passo remove softwares pré-instalados inúteis do GitHub para liberar ~30GB
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf /usr/lib/mono
+          echo "[!] Disco limpo. Espaço disponível:"
+          df -h
+
+      - name: Checkout do Repositório
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Configurar Ambiente e Mudar Pacote
         run: |
-          echo "[-] Iniciando alteração do pacote para: com.tclabs.codestudio"
-          # Altera a variável global de pacote no script de propriedades do termux-packages
+          # Altera o pacote no arquivo de propriedades oficial
           sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codestudio"/g' ./scripts/properties.sh
-          
-          # Verifica se a alteração foi aplicada com sucesso
-          grep "TERMUX_APP_PACKAGE" ./scripts/properties.sh
-          echo "[!] Pacote alterado com sucesso no arquivo de propriedades."
+          echo "[!] Pacote alterado para com.tclabs.codestudio"
 
-      - name: Executar Build do Bootstrap (Compilação Real)
+      - name: Executar Build do Bootstrap
         run: |
-          echo "[-] Iniciando a compilação do bootstrap para a arquitetura ${{ matrix.arch }}..."
-          echo "[-] Este processo pode demorar, pois os binários serão re-vinculados ao novo caminho."
-          
-          # O script run-docker.sh cria o container necessário para compilar
-          # O build-bootstraps.sh gera o .zip final baseado no TERMUX_APP_PACKAGE definido anteriormente
+          # Importante: build-bootstraps.sh é um processo intensivo.
+          # O --suites define o conjunto básico de pacotes (evita compilar o que não é bootstrap)
           ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}
           
-          echo "[!] Compilação concluída para ${{ matrix.arch }}."
-
-      - name: Upload do Artefato (Bootstrap ZIP)
+      - name: Upload do Artefato
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: bootstrap-${{ matrix.arch }}
-          path: bootstrap-*.zip
+          path: "*.zip"
 
   release:
     needs: build-bootstrap
@@ -49,9 +54,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download de todos os artefatos
         uses: actions/download-artifact@v4
         with:
@@ -62,13 +64,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG_NAME="bootstrap-tclabs-$(date +'%Y%m%d%H%M')"
-          echo "[-] Criando Release: $TAG_NAME"
-          
-          gh release create "$TAG_NAME" \
-            --title "Bootstrap Custom: com.tclabs.codestudio" \
-            --notes "Arquivos bootstrap compilados para o pacote personalizado com.tclabs.codestudio. Use estes arquivos no seu termux-app customizado."
-          
-          gh release upload "$TAG_NAME" ./bootstraps/*.zip
-          echo "[!] Release publicada com sucesso!"
+          TAG_NAME="bootstrap-tclabs-$(date +'%Y.%m.%d-%H%M')"
+          gh release create "$TAG_NAME" ./bootstraps/*.zip \
+            --title "Bootstrap TCLabs (2025)" \
+            --notes "Compilado para com.tclabs.codestudio"
 
