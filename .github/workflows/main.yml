@@ -1,71 +1,40 @@
-name: Build Custom Bootstrap TCLabs
+name: Build Light Bootstrap TCLabs (Legacy 0.65 Style)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-bootstrap:
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Recomendo testar primeiro apenas com aarch64 para economizar tempo e espaço
-        arch: [aarch64] 
+    timeout-minutes: 120 # Versão leve não deve passar de 1h
 
     steps:
-      - name: Maximize Build Space (Limpeza de Disco)
-        # Esse passo remove softwares pré-instalados inúteis do GitHub para liberar ~30GB
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf /usr/lib/mono
-          echo "[!] Disco limpo. Espaço disponível:"
-          df -h
-
-      - name: Checkout do Repositório
+      - name: Checkout (Focando em estabilidade)
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: Configurar Ambiente e Mudar Pacote
+      - name: Limpeza Extrema de Disco
         run: |
-          # Altera o pacote no arquivo de propriedades oficial
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/mono
+          docker image prune -a -f
+
+      - name: Customizar Pacote e Otimizar Build
+        run: |
+          # 1. Mudar o ID do pacote
           sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codestudio"/g' ./scripts/properties.sh
-          echo "[!] Pacote alterado para com.tclabs.codestudio"
-
-      - name: Executar Build do Bootstrap
-        run: |
-          # Importante: build-bootstraps.sh é um processo intensivo.
-          # O --suites define o conjunto básico de pacotes (evita compilar o que não é bootstrap)
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures ${{ matrix.arch }}
           
-      - name: Upload do Artefato
-        if: success()
+          # 2. Truque para Bootstrap Leve: Reduzir a lista de pacotes "finais"
+          # Isso evita que o script tente compilar centenas de utilitários pesados
+          # Vamos manter apenas o essencial para o terminal abrir (bash, coreutils, apt)
+          sed -i 's/TERMUX_PKGS_TO_INSTALL=.*/TERMUX_PKGS_TO_INSTALL="bash,coreutils,dash,diffutils,findutils,gawk,grep,sed,tar,termux-exec,termux-tools,util-linux,apt,ca-certificates,command-not-found,debianutils,dpkg,readline"/g' ./scripts/build-bootstraps.sh
+
+      - name: Compilar Bootstrap (Apenas aarch64)
+        run: |
+          # O uso do script legacy para 0.65 requer menos recursos
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bootstrap-${{ matrix.arch }}
+          name: bootstrap-0.65-light-aarch64
           path: "*.zip"
-
-  release:
-    needs: build-bootstrap
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download de todos os artefatos
-        uses: actions/download-artifact@v4
-        with:
-          path: ./bootstraps
-          merge-multiple: true
-
-      - name: Criar Release no GitHub
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG_NAME="bootstrap-tclabs-$(date +'%Y.%m.%d-%H%M')"
-          gh release create "$TAG_NAME" ./bootstraps/*.zip \
-            --title "Bootstrap TCLabs (2025)" \
-            --notes "Compilado para com.tclabs.codestudio"
 
