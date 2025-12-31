@@ -1,68 +1,42 @@
-name: TCLabs_Debug_Deep_Log
+name: Build Custom Bootstrap TCLabs
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
-    permissions:
-      contents: write
-
+    runs-on: ubuntu-22.04 # Mudança para versão mais estável
     steps:
-      - name: 1. Limpeza Extrema e Log de Espaço Inicial
+      - name: Limpeza Extrema de Disco
         run: |
           set -x
-          echo "=== ESPAÇO INICIAL ==="
-          df -h
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/mono /usr/local/lib/node_modules /opt/hostedtoolcache/CodeQL
           docker image prune -a -f
-          echo "=== ESPAÇO APÓS LIMPEZA ==="
           df -h
 
-      - name: 2. Checkout com Log
+      - name: Checkout do Código
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: 3. Configuração do Pacote (Modo Verboso)
+      - name: Modificar Pacote e Iniciar Compilação
         run: |
-          set -x
-          # Altera o pacote para com.tclabs.codestudio
+          set -e
+          # Força o diretório como seguro para o Git
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          
+          # Altera o pacote para o seu
           sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codestudio"/g' ./scripts/properties.sh
           
-          # Verifica se a alteração foi gravada
-          grep "TERMUX_APP_PACKAGE" ./scripts/properties.sh
+          echo "[-] Pacote alterado. Iniciando build..."
           
-          # Reduz a lista de pacotes para o mínimo essencial (Versão 0.65 leve)
-          # Isso evita compilar ferramentas pesadas que lotam o disco
-          sed -i 's/TERMUX_PKGS_TO_INSTALL=.*/TERMUX_PKGS_TO_INSTALL="bash,coreutils,dash,diffutils,findutils,gawk,grep,sed,tar,termux-exec,termux-tools,util-linux,apt,ca-certificates,dpkg,readline"/g' ./scripts/build-bootstraps.sh
+          # Executa apenas para aarch64 (celulares modernos) para evitar queda por recurso
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64
 
-      - name: 4. Execução do Build (Log Intensivo)
-        run: |
-          # Ativa o log para o ambiente do runner
-          set -x
-          
-          # O script abaixo entra no Docker e compila. 
-          # Adicionamos 'bash -x' para ver o que acontece dentro do script de build
-          ./scripts/run-docker.sh bash -x ./scripts/build-bootstraps.sh --architectures aarch64
-
-      - name: 5. Verificação de Arquivos Gerados
-        if: always()
-        run: |
-          set -x
-          echo "=== CONTEÚDO DO DIRETÓRIO FINAL ==="
-          ls -R
-          df -h
-
-      - name: 6. Upload e Release
+      - name: Upload do ZIP
         if: success()
-        uses: softprops/action-gh-release@v2
+        uses: actions/upload-artifact@v4
         with:
-          files: "*.zip"
-          tag_name: v1.0-tclabs-${{ github.run_id }}
-          name: "Bootstrap TCLabs Final"
-          body: "Compilado com log intensivo para o pacote com.tclabs.codestudio"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+          name: bootstrap-tclabs-aarch64
+          path: "*.zip"
 
