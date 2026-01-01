@@ -1,33 +1,30 @@
-name: Patch Bootstrap TCLabs
+name: Gerador de Bootstrap TCLabs
 on:
   workflow_dispatch:
 
 jobs:
-  patch:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Baixar Bootstrap Oficial
+      - name: Baixar o arquivo original
         run: |
-          # Baixa o bootstrap oficial mais estável para aarch64
-          curl -L github.com -o bootstrap.zip
-          unzip bootstrap.zip -d temp_bootstrap
+          # Baixa o bootstrap original que funciona
+          curl -L "github.com" -o original.zip
+          unzip original.zip -d pasta_bootstrap
 
-      - name: Aplicar Patch de Pacote (com.tclabs.codestudio)
+      - name: Mudar o pacote de com.termux para o seu
         run: |
-          echo "[-] Trocando com.termux por com.tclabs.codestudio em todos os binários..."
-          # Este comando percorre todos os arquivos e substitui a string binária
-          # O segredo é que o novo nome tem o mesmo número de caracteres ou é menor
-          find temp_bootstrap -type f -exec sed -i 's/com.termux/com.tclabs.codestudio/g' {} +
+          # Procura todos os arquivos e troca o texto com.termux pelo seu pacote
+          find pasta_bootstrap -type f -exec sed -i 's/com.termux/com.tclabs.codestudio/g' {} +
           
-      - name: Criar Novo ZIP
+      - name: Criar o seu arquivo ZIP
         run: |
-          cd temp_bootstrap
-          zip -r ../bootstrap-tclabs-codestudio.zip .
-          cd ..
-
-      - name: Upload do Resultado
+          cd pasta_bootstrap
+          zip -r ../bootstrap-tclabs.zip .
+          
+      - name: Te entregar o arquivo
         uses: actions/upload-artifact@v4
         with:
-          name: bootstrap-final
-          path: bootstrap-tclabs-codestudio.zip
+          name: meu-bootstrap-pronto
+          path: bootstrap-tclabs.zip
 
