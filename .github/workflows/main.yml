@@ -1,60 +1,33 @@
-name: Build Minimal Bootstrap TCLabs
-
+name: Patch Bootstrap TCLabs
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-    # Define um limite de tempo alto para evitar interrupções do GitHub
-    timeout-minutes: 180 
-
+  patch:
+    runs-on: ubuntu-latest
     steps:
-      - name: Liberar Espaço em Disco
+      - name: Baixar Bootstrap Oficial
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/mono
-          docker image prune -a -f
-          df -h
+          # Baixa o bootstrap oficial mais estável para aarch64
+          curl -L github.com -o bootstrap.zip
+          unzip bootstrap.zip -d temp_bootstrap
 
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Injetar Pacote Customizado
+      - name: Aplicar Patch de Pacote (com.tclabs.codestudio)
         run: |
-          # Altera o ID do pacote em todas as ocorrências de propriedades
-          sed -i 's/TERMUX_APP_PACKAGE="com.termux"/TERMUX_APP_PACKAGE="com.tclabs.codestudio"/g' ./scripts/properties.sh
-          echo "[!] Pacote configurado para: com.tclabs.codestudio"
-
-      - name: Compilar Bootstrap Minimal
-        run: |
-          set -x
-          # O comando abaixo usa o run-docker para garantir isolamento
-          # --minimal foca apenas nos pacotes vitais (bash, libc, dash, apt)
-          # Isso reduz drasticamente as chances de erro na libgmp ou bibliotecas de cálculo
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --minimal --architectures aarch64
+          echo "[-] Trocando com.termux por com.tclabs.codestudio em todos os binários..."
+          # Este comando percorre todos os arquivos e substitui a string binária
+          # O segredo é que o novo nome tem o mesmo número de caracteres ou é menor
+          find temp_bootstrap -type f -exec sed -i 's/com.termux/com.tclabs.codestudio/g' {} +
           
-      - name: Verificar e Renomear ZIP
-        if: success()
+      - name: Criar Novo ZIP
         run: |
-          # Garante que o arquivo gerado seja identificado facilmente
-          ls -lh *.zip
-          mv bootstrap-aarch64.zip bootstrap-tclabs-minimal-aarch64.zip
+          cd temp_bootstrap
+          zip -r ../bootstrap-tclabs-codestudio.zip .
+          cd ..
 
-      - name: Upload Artifact
-        if: success()
+      - name: Upload do Resultado
         uses: actions/upload-artifact@v4
         with:
-          name: bootstrap-tclabs-minimal
-          path: bootstrap-tclabs-minimal-aarch64.zip
-
-      - name: Create Release
-        if: success()
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ github.run_number }}-tclabs
-          name: "TCLabs Bootstrap Minimal (2026)"
-          files: bootstrap-tclabs-minimal-aarch64.zip
-          body: "Bootstrap compilado para o pacote com.tclabs.codestudio usando a flag --minimal."
+          name: bootstrap-final
+          path: bootstrap-tclabs-codestudio.zip
 
